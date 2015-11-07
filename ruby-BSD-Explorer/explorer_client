@@ -1,0 +1,226 @@
+#!/bin/sh
+#
+# Copyright (c) 1999, 2000, 2001, 2002 Ariff Abdullah 
+# 	(skywizard@MyBSD.org.my) All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+#	$MyBSD$
+#	$FreeBSD$
+#
+
+usage() {
+	echo "Usage: ${0##*/}"
+	echo "	<-quit|-stop|-run|-home|-restart|-gc>"
+	echo "	<-getref:<number>|-dump|directory.....>"
+	exit 1
+}
+
+check_if_running() {
+	if [ -d "$dir" -a -f "$pidfile" -a -p "$fifo" ]; then
+		mypid=`cat $pidfile`
+		status="/proc/$mypid/status"
+		if [ -e "$status" ]; then
+			if grep -q '^ruby[0-9]* [0-9]' $status ; then
+				return 0
+			fi
+		fi
+	fi
+	mypid=""
+	if $locked ; then
+		echo "Warning: Explorer lockfile exist!"
+		return 0
+	else
+		rm -f "$fifo" "$pidfile"
+		return 1
+	fi
+}
+
+ipc_send() {
+	(
+		echo -e "$1\000$mypwd" > "$fifo"
+	) &
+}
+
+ruby="${RUBY:-/usr/local/bin/ruby}"
+if [ ! -x "$ruby" ]; then
+	echo "Ruby intepreter is not an executable!"
+	exit 1
+fi
+user="`/usr/bin/id -un`"
+case "$USER" in
+	toor)
+		case "$user" in
+			root)
+				user="toor"
+				;;
+		esac
+		;;
+esac
+home="${HOME:-`$ruby -r etc -e 'print Etc.getpwnam(ARGV[0]).dir, "\n"' $user`}"
+home="`cd \"$home\" ; pwd`"
+dir="$home/.bsd_explorer"
+fifo="$dir/fifo"
+pidfile="$dir/fifo.pid"
+mypwd="`pwd`"
+server="/usr/local/share/bsd-explorer/explorer_server"
+lockfile="$dir/explorer.lock"
+mypid=""
+max_try=1000
+try=0
+
+if [ ! -w "$home" ]; then
+	echo "Your home directory is not writable!"
+	exit 1
+fi
+if [ ! -d "$dir" ]; then
+	mkdir -p "$dir"
+	chmod 0700 "$dir"
+fi
+if [ -e "$lockfile" ]; then
+	locked=true
+else
+	locked=false
+fi
+#export RUBY_GTK_EXPERIMENT=yes
+
+case "$#" in
+	0)
+		if check_if_running ; then
+			if $locked ; then
+				try=0
+				while [ -e "$lockfile" ]; do
+					try=$(($try+1))
+					case "$try" in
+						$max_try)
+							echo "Enough trying..... BSD Explorer locked real hard!"
+							rm -f "$lockfile"
+							exit 1
+							;;
+					esac
+				done
+			fi
+			ipc_send "-home"
+		else
+			:> "$lockfile"
+			exec $ruby -C "$home" -w $server
+		fi
+		;;
+	1)
+		if check_if_running ; then
+			if $locked ; then
+				try=0
+				while [ -e "$lockfile" ]; do
+					try=$(($try+1))
+					case "$try" in
+						$max_try)
+							echo "Enough trying..... BSD Explorer locked real hard!"
+							rm -f "$lockfile"
+							exit 1
+							;;
+					esac
+				done
+			fi
+			case "$1" in
+				-status)
+					if $locked ; then
+						check_if_running
+					fi
+					echo "BSD Explorer is running: (pid $mypid)"
+					;;
+				-quit|-stop|-run|-home|-dump|-gc|-getref:*)
+					ipc_send "$1"
+					;;
+				-restart)
+					:> "$lockfile"
+					ipc_send "-lockquit"
+					( 
+						try=0
+						while [ -e "$fifo" -o -e "$pidfile" ]; do
+							try=$(($try+1))
+							case "$try" in
+								$max_try)
+									echo "Enough trying..... BSD Explorer won't quit?"
+									rm -f "$lockfile"
+									exit 1
+									;;
+							esac
+						done
+						:> "$lockfile"
+						exec $ruby -C "$home" -w $server
+					) &
+					;;
+				*)
+					if [ -d "$1" -a -x "$1" ]; then
+						ipc_send "$1"
+					elif [ -d "$1" ]; then
+						echo "You dont have enough permission to enter this directory!"
+						exit 1
+					elif [ -e "$1" ]; then
+						echo "\"$1\" is not a directory!"
+						exit 1
+					else
+						echo "Directory/File NOT Exist!"
+						usage
+					fi
+					;;
+			esac
+		else
+			case "$1" in
+				-quit|-stop|-status)
+					echo "BSD Explorer NOT Running!"
+					exit 1
+					;;
+				*)
+					echo "BSD Explorer NOT Running : Starting....."
+					case "$1" in
+						-restart)
+							:> "$lockfile"
+							exec $ruby -C "$home" -w $server
+							;;
+					esac
+					(
+						:> "$lockfile"
+						exec $ruby -C "$home" -w $server
+					) &
+					( 
+						try=0
+						while [ ! -p "$fifo" -o ! -f "$pidfile" -o -e "$lockfile" ]; do
+							try=$(($try+1))
+							case "$try" in
+								$max_try)
+									echo "Enough trying... BSD Explorer is on vacation!"
+									rm -f "$lockfile"
+									exit 1
+									;;
+							esac
+						done
+						ipc_send "$1"
+					) &
+					;;
+			esac
+		fi
+		;;
+	*)
+		usage
+		;;
+esac

@@ -1,0 +1,10 @@
+Last release of so called *BSD Explorer* (Tomoyo Explorer) written
+entirely using ruby.
+
+Requirement
+1) ruby-gtk 1.2.x , ruby-gdkpixbuf
+2) already installed/configured Tomoyo Explorer (we only need those data files)
+
+./explorer_alone
+
+Have fun. Happy hacking.

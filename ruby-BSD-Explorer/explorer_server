@@ -1,0 +1,161 @@
+#!/usr/local/bin/ruby -w
+#
+# Copyright (c) 1999, 2000, 2001 Ariff Abdullah 
+# 	(skywizard@MyBSD.org.my). All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+#	$MyBSD$
+#	$FreeBSD$
+#
+
+GC.enable
+fork do
+	GC.enable
+	$EXPLORER_SERVER = true
+	expdir = "/usr/local/share/bsd-explorer"
+	if ENV.has_key?("RUBY_GTK_EXPERIMENT")
+		$:.unshift(expdir, expdir+"/ruby-gtk")
+	else
+		$:.unshift(expdir, expdir+"/ruby-gtk-fix")
+	end
+	require 'Explorer'
+
+	$RESTART = 0
+	Reg = ExplorerServer.new()
+	setup_main()
+	run_dialog = ExplorerRun.new(
+					Reg.registry_data["run_dialog_x_pos"],
+					Reg.registry_data["run_dialog_y_pos"])
+	tmpdir = Reg.home + "/.bsd_explorer"
+	logfile = tmpdir + "/error.log"
+	fifo = tmpdir + "/fifo"
+	pidfile = fifo + ".pid"
+	def_umask = File.umask()
+	File.umask(0077)
+	File.unlink(fifo) if test(?e, fifo)
+	File.mkfifo(fifo)
+	open(pidfile, "w") do |file|
+		file.print "#{$$}\n"
+	end
+	lockfile = tmpdir + "/explorer.lock"
+	Reg.fifo_file = fifo
+	Reg.pid_file = pidfile
+	File.truncate(logfile, 0) if test(?f, logfile) && File.stat(logfile).size > 10240
+	[0, 1, 2, 6, 15].each do |sig|
+		if sig == 0
+			trap(0) do
+				File.unlink(fifo) if test(?e, fifo)
+				File.unlink(pidfile) if test(?e, pidfile)
+				File.truncate(logfile, 0) if test(?f, logfile) && File.stat(logfile).size > 10240
+				case $RESTART
+					when 0
+						File.unlink(lockfile) if test(?e, lockfile)
+					when 1
+						open(lockfile, "w") do
+						end
+				end
+				exit(0)
+			end
+		else
+			trap(sig) do exit(0) end
+		end
+	end
+	Dir.mkdir(tmpdir) unless test(?d, tmpdir)
+	fifo_id = open(fifo, File::Constants::RDWR|File::Constants::NONBLOCK)
+	input_id = Gtk.input_add(fifo_id, Gdk::INPUT_READ) do
+		GC.start()
+		cmd = nil
+		begin
+			cmd = fifo_id.gets
+		rescue
+		end
+		if cmd.is_a?(String)
+			cmd.chomp!
+			cmd = cmd.split("\000")
+			pwd = cmd[-1]
+			cmd.pop
+			case cmd[0]
+				when "-quit", "-stop"
+					Gtk.main_quit
+				when "-lockquit"
+					$RESTART = 2
+					Gtk.main_quit
+				when "-dump"
+					begin
+						count = 0
+						open(tmpdir+"/explorer_dump", "w") do |file|
+							ObjectSpace.each_object do |obj|
+								count += 1
+								file.print "#{obj}\n"
+							end
+							file.print "\nTotal Count: #{count}\n"
+						end
+					rescue
+					end
+				when "-gc"
+					GC.start()
+				when "-restart"
+					$RESTART = 1
+					Gtk.main_quit
+				when "-home"
+					Reg.all_sessions << Explorer.new(Reg.home) do GC.start() end
+				when "-run"
+					run_dialog.run()
+				else
+					if cmd[0].size > 0
+						Reg.all_sessions << Explorer.new(File.expand_path(cmd[0], pwd)) do
+							GC.start()
+						end
+					end
+			end
+		end
+		cmd = nil
+		pwd = nil
+		GC.start()
+		true
+	end
+	open(logfile, "a") do |file|
+		file.print "#{Time.now} : BSD Explorer version #{EXPLORER_VERSION} : Start\n"
+		file.print " => Maximum Directory Cache : #{Reg.registry_data['max_dir_cache']}\n" if Reg.registry_data["use_fs_cache"]
+	end
+	File.umask(def_umask)
+	File.unlink(lockfile) if test(?e, lockfile)
+	GC.start()
+	Gtk.main
+	begin
+		Gtk.input_remove(input_id)
+		fifo_id.close
+	rescue
+	end
+	run_dialog.cleanup()
+	open(logfile, "a") do |file|
+		file.print "#{Time.now} : BSD Explorer version #{EXPLORER_VERSION} : Stop\n"
+	end
+	if $RESTART == 1
+		GC.start()
+		fork do
+			exec($0)
+		end
+	end
+	exit(0)
+end

@@ -1,0 +1,38 @@
+# hmmmmmmmmm
+#
+
+style "default"
+{
+	bg[NORMAL] = { 0.925, 0.914, 0.847 }
+	bg[SELECTED] = { 0.180, 0.286, 0.384 }
+	bg[INSENSITIVE] = { 0.925, 0.914, 0.847 }
+	bg[ACTIVE] = { 0.769, 0.757, 0.702 }
+	bg[PRELIGHT] = { 0.925, 0.914, 0.847 }
+	
+	base[NORMAL] = { 1.000, 1.000, 1.000 }
+	base[SELECTED] = { 0.180, 0.286, 0.384 }
+	base[INSENSITIVE] = { 0.925, 0.914, 0.847 }
+	base[ACTIVE] = { 1.000, 1.000, 1.000 }
+	base[PRELIGHT] = { 1.000, 1.000, 1.000 }
+	
+	text[NORMAL] = { 0.000, 0.000, 0.000 }
+	text[SELECTED] = { 1.000, 1.000, 1.000 }
+	text[INSENSITIVE] = { 0.769, 0.757, 0.702 }
+	text[ACTIVE] = { 0.000, 0.000, 0.000 }
+	text[PRELIGHT] = { 0.000, 0.000, 0.000 }
+	
+	fg[NORMAL] = { 0.000, 0.000, 0.000 }
+	fg[SELECTED] = { 1.000, 1.000, 1.000 }
+	fg[INSENSITIVE] = { 0.769, 0.757, 0.702 }
+	fg[ACTIVE] = { 0.000, 0.000, 0.000 }
+	fg[PRELIGHT] = { 0.000, 0.000, 0.000 }
+
+	fontset = "-*-tahoma-medium-r-normal-*-*-80-96-96-*-*-*"
+}
+
+style "text" {
+	fontset = "-b&h-lucidatypewriter-medium-r-normal-*-*-120-*-*-*-*-*"
+}
+
+class "*" style "default"
+class "*Text*" style "text"
